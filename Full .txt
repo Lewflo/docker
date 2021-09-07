@@ -1,0 +1,67 @@
+apt update && apt upgrade
+apt install docker.io docker-compose jq curl -y
+snap install postman dbeaver-ce
+
+docker-compose build kong
+docker-compose up -d kong-db
+docker-compose run --rm kong kong migrations bootstrap
+docker-compose up -d kong
+docker-compose up -d konga
+localhost:1337 | url:http://kong:8001
+
+curl -s -X POST http://localhost:8001/services \
+    -d name=mock-service \
+    -d url=http://mockbin.org/request
+curl -s -X POST http://localhost:8001/services/<id>/routes -d "paths[]=/mock"
+curl -s http://localhost:8000/mock
+
+docker-compose up -d keycloak-db
+docker-compose up -d keycloak
+
+http://localhost:8180	| admin:admin
+Add realm = test
+create client kong | url: http://localhost:8000 ; red uri:/mock/*
+create client myapp | red uri:myapp ;
+create user demouser | email:test@test.com ; fn:Demo ; ln:User ; mailverified:on
+; password:demouser ; temporary:off
+
+export HOST_IP=172.22.2.42
+export REALM="test"
+export CLIENT_SECRET=""
+
+curl -s -X POST http://localhost:8001/plugins \
+  -d name=oidc \
+  -d config.client_id=kong \
+  -d config.client_secret=${CLIENT_SECRET} \
+  -d config.bearer_only=yes \
+  -d config.realm=${REALM} \
+  -d config.introspection_endpoint=http://${HOST_IP}:8180/auth/realms/${REALM}/protocol/openid-connect/token/introspect \
+  -d config.discovery=http://${HOST_IP}:8180/auth/realms/${REALM}/.well-known/openid-configuration \
+
+curl "http://${HOST_IP}:8000/mock" \
+-H "Accept: application/json" -I
+
+export RAWTKN=$(curl -s -X POST \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "username=demouser" \
+        -d "password=demouser" \
+        -d 'grant_type=password' \
+        -d "client_id=myapp" \
+        http://${HOST_IP}:8180/auth/realms/test/protocol/openid-connect/token \
+        |jq . )
+
+export TKN=$(echo $RAWTKN | jq -r '.access_token')
+
+service mock | host:mockbin.org ; path:request ; route&path:/services
+
+plugin kong:oidc | endpoint:url+port/auth/realms/test/protocol/openid-connect/token/introspect ; bearer:yes  scope:openid ; discovery:http://172.22.2.42:8180/auth/realms/test/.well-known/openid-configuration 
+
+get token
+POST ; url:host+port/auth/realms/test/protocol/openid-connect/token ; body:x,client_secret,client_id,username,password,grant_type
+auth
+GET ; url:http://172.22.2.42/services ; auth type:bearer
+
+
+
+
+

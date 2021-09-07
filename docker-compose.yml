@@ -1,0 +1,135 @@
+version: '3.4'
+
+networks: 
+  kong-net:
+  keycloak-net:
+  pgadmin4-net
+
+volumes:
+  kong-datastore:
+  keycloak-datastore:
+  pgadmin4-net
+
+services:
+  kong-db:
+    image: postgres:11-alpine
+    volumes:
+      - kong-datastore:/var/lib/postgresql/data
+    networks:
+      - kong-net
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_DB:       api-gw
+      POSTGRES_USER:     kong
+      POSTGRES_PASSWORD: kong
+
+  kong:
+    build:
+      context: ./      
+    image: kong-oidc:latest
+    depends_on:
+      - kong-db
+    networks:
+      - kong-net
+    ports:
+      - "8000:8000" # Listener
+      - "8001:8001" # Admin API
+      - "8443:8443" # Listener  (SSL)
+      - "8444:8444" # Admin API (SSL)
+    environment:
+      KONG_DATABASE:         postgres
+      KONG_PG_HOST:          kong-db
+      KONG_PG_PORT:          5432
+      KONG_PG_DATABASE:      api-gw
+      KONG_PG_USER:          kong
+      KONG_PG_PASSWORD:      kong
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG:  /dev/stderr
+      KONG_ADMIN_ERROR_LOG:  /dev/stderr
+      KONG_PROXY_LISTEN:     0.0.0.0:8000, 0.0.0.0:8443 ssl
+      KONG_ADMIN_LISTEN:     0.0.0.0:8001, 0.0.0.0:8444 ssl
+      KONG_PLUGINS:          bundled,oidc
+      KONG_LOG_LEVEL:        debug
+
+  konga:
+    image: pantsel/konga:0.14.9
+    depends_on:
+      - kong
+    networks:
+      - kong-net
+    ports:
+      - "1337:1337" # konga
+    environment:
+      DB_ADAPTER: postgres
+      DB_HOST: kong-db
+      DB_PORT: '5432'
+      DB_USER: kong
+      DB_PASSWORD: kong
+      DB_DATABASE: api-gw
+      NODE_ENV: development
+
+  keycloak-db:
+    image: postgres:11-alpine
+    volumes: 
+      - keycloak-datastore:/var/lib/postgresql/data
+    networks:
+      - keycloak-net
+    ports:
+      - "25432:5432"
+    environment:
+      POSTGRES_DB:       keycloak
+      POSTGRES_USER:     keycloak
+      POSTGRES_PASSWORD: password
+
+  keycloak:
+    image: jboss/keycloak:12.0.4
+    depends_on:
+      - keycloak-db
+    networks:
+      - keycloak-net
+    ports:
+      - "8180:8080"
+    environment:
+      DB_VENDOR:   POSTGRES
+      DB_ADDR:     keycloak-db
+      DB_PORT:     5432
+      DB_DATABASE: keycloak
+      DB_USER:     keycloak
+      DB_PASSWORD: password
+      KEYCLOAK_USER:     admin
+      KEYCLOAK_PASSWORD: admin
+
+  pgadmin4-db:
+    image: postgres:11-alpine
+    volumes: 
+      - pgadmin4-datastore:/var/lib/postgresql/data
+    networks:
+      - pgadmin4-net
+    ports:
+      - "35432:5432"
+    environment:
+      POSTGRES_DB:       pgadmin4
+      POSTGRES_USER:     pgadmin4
+      POSTGRES_PASSWORD: password
+
+  pgadmin:
+    image: dpage/pgadmin4
+    depends_on:
+      - pgadmin4-db
+    networks:
+      - pgadmin4-net
+    ports:
+      - 7070:80
+    environment:
+      PGADMIN_DEFAULT_EMAIL: pgadmin4@pgadmin.org
+      PGADMIN_DEFAULT_PASSWORD: admin
+      DB_VENDOR:   POSTGRES
+      DB_ADDR:     pgadmin4-db
+      DB_PORT:     5432
+      DB_DATABASE: pgadmin4
+      DB_USER:     pgadmin4
+      DB_PASSWORD: password
+    restart: unless-stopped
+
