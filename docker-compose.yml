@@ -3,12 +3,12 @@ version: '3.4'
 networks: 
   kong-net:
   keycloak-net:
-  pgadmin4-net
+  pgadmin4-net:
 
 volumes:
   kong-datastore:
   keycloak-datastore:
-  pgadmin4-net
+  pgadmin4-datastore:
 
 services:
   kong-db:
